@@ -29,137 +29,105 @@ app.use(cors())
 app.use(express.json())
 app.use(express.urlencoded({ extended: false }))
 
-//create an admin
-
-app.post('/createAdmin', async (req,res)=>{
-    
-  const post =  req.body;
-  console.log("creating admin", post);
-
+//register
+app.post('/api/register', async (req, res) => {
+    try {
+      const saltRounds = 10;  
+      const {name,  email, password} = req.body;
+      
+      
   
-  const salt = await bcrypt.genSalt(10);
-  const hashedPassword = await bcrypt.hash(post.password, salt);
-
-  const query = `INSERT INTO admin (name,email, password) VALUES (?, ?, ?)`;
-
-  db.query(query, [post.name, post.email, hashedPassword],
-  (error,  results) => {
-      if (error) {
-          console.log(error);
-          res.status(500).json({ status: 'error' });
-      } else {
-          res.json(results);
-      }
-  });
-});
-
-//logout
-
-
-const blacklist = [];
-
-app.post('/api/logout', (req, res) => {
-  const { token } = req.body;
-
-  if (!token) {
-    return res.status(400).json({ error: 'Token required' });
-  }
-
-  if (blacklist.includes(token)) {
-    return res.status(400).json({ error: 'Token already blacklisted' });
-  }
-
-  blacklist.push(token);
-
-  return res.status(200).json({ message: 'Logged out successfully' });
-});
-
-
-
-//create user
-
-app.post('/create', async (req,res)=>{
-    
-    const post =  req.body;
-    console.log("creating user", post);
-
-    
-    const bcrypt = require('bcrypt');
-    const saltRounds = 10;
-    const hashedPassword = bcrypt.hashSync(post.password, saltRounds);
-    
-    const query = `INSERT INTO user (name, position, email, admin_idadmin, password) VALUES (?, ?, ?, ?, ?)`;
-    
-    db.query(query, [post.name, post.position, post.email, post.admin_idadmin, hashedPassword], (error, results) => {
+      const hashedPassword = await bcrypt.hash(password, saltRounds);
+  
+      const user = {
+        name,
+        email,
+        password: hashedPassword
+      };
+  
+      const query = `INSERT INTO admin (name, email, password) VALUES ( ?, ?, ?)`;
+      db.query(query, [user.name, user.email, user.password], (error, results) => {
         if (error) {
-            console.log(error);
-            res.status(500).json({ status: 'error' });
+          console.error(error);
+          res.status(500).json({ status: 'error', message: 'Server error' });
         } else {
-            res.json(results);
+          res.status(200).json({ status: 'success', message: 'User created successfully!' });
         }
+      });
+    } catch (error) {
+      console.error(error); 
+      res.status(500).json({ status: 'error', message: 'Server error' });
+    }
+  });
+
+  //login
+
+  app.post('/api/login', (req, res) => {
+    const { email, password } = req.body;
+  
+    const query = 'SELECT * FROM admin WHERE email = ?';
+    db.query(query, email, async (error, results) => {
+      if (error) {
+        return res.status(500).json({ error });
+      }
+  
+      if (results.length > 0) {
+        const user = results[0];
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) {
+          return res.status(400).json({ message: 'Invalid credentials' });
+        }
+  
+        const token = jwt.sign({ id: user.id }, 'your_secret_jwt_key', { expiresIn: '1h' });
+        return res.status(200).json({ message: 'Logged in successfully', token });
+      } else {
+        return res.status(400).json({ message: 'User not found' });
+      }
     });
-});
-;
-
-//get courses
-
-app.get('/cour',(req,res)=>{
-    const sqlSelect="SELECT * FROM courses"
+  });
+//get user
+  app.get('/user',(req,res)=>{
+    const sqlSelect="SELECT * FROM user"
     db.query(sqlSelect, (err, result)=>{
         console.log('erreur',err)
         console.log('result',result)
         res.json(result)
     })
+  
+  })
 
-})
-
-//createCourse
-app.post('/createCourse', (req, res) => {
-  const course  = req.body;
-  console.log("creating course", course); 
-  db.query(
-    `INSERT INTO courses (name,hour, subjct,user_iduser) VALUES (?, ?, ?,?)`,
-    [course.name, course.hour , course.subjct, course.user_iduser],
-    (error, results) => {
-      if (error) {
-        console.log(error);
-        res.status(500).send(error.message);
-      } else {
-        res.status(200).send(results);
+  //create user
+  app.post('/createUser', (req, res) => {
+    const user  = req.body;
+    console.log("creating user", user); 
+    db.query(
+      `INSERT INTO user (name,position, email,password,admin_idadmin) VALUES (?, ?, ?,?,?)`,
+      [user.name, user.position , user.email,user.password, user.admin_idadmin],
+      (error, results) => {
+        if (error) {
+          console.log(error);
+          res.status(500).send(error.message);
+        } else {
+          res.status(200).send(results);
+        }
       }
-    }
-  );
-});
-//delete course
-app.delete('/courseDelete/:name', (req, res) => {
-  const name = req.params.name;
-  db.query('DELETE FROM courses WHERE name = ?', name, (err, result) => {
+    );
+  });
+
+ //see courses
+app.get('/cour', (req, res) => {
+  // Retrieve courses data from the database
+  const sqlSelect = 'SELECT * FROM courses';
+  db.query(sqlSelect, (err, result) => {
     if (err) {
-      console.error('Error deleting course:', err);
-      res.status(500).send(`Error deleting course: ${err.message}`);
-    } else if (result.affectedRows === 0) {
-      console.log(`Course with name ${name} not found`);
-      res.status(404).send(`Course with name ${name} not found`);
+      console.error('Error fetching courses:', err);
+      res.status(500).send('Error fetching courses');
     } else {
-      console.log(`Course with name ${name} deleted successfully`);
-      res.send(`Course with name ${name} deleted successfully`);
+      res.json(result);
     }
   });
 });
 
-
-//get users
-app.get('/users',(req,res)=>{
-  const sqlSelect="SELECT * FROM user"
-  db.query(sqlSelect, (err, result)=>{
-      console.log('erreur',err)
-      console.log('result',result)
-      res.json(result)
-  })
-
-})
-
-//get one user
 
 app.get('/one/:name', (req, res) => {
   const recordName = req.params.name;
@@ -178,69 +146,34 @@ app.get('/one/:name', (req, res) => {
     }
   });
 });
-
-//register
-
-app.post('/api/register', async (req, res) => {
-  try {
-    const saltRounds = 10;  
-    const {name, position, email, admin_idadmin, password} = req.body;
-    
-    
-
-    const hashedPassword = await bcrypt.hash(password, saltRounds);
-
-    const user = {
-      name,
-      position,
-      email,
-      admin_idadmin,
-      password: hashedPassword
-    };
-
-    const query = `INSERT INTO user (name, position, email, admin_idadmin, password) VALUES (?, ?, ?, ?, ?)`;
-    db.query(query, [user.name, user.position, user.email, user.admin_idadmin, user.password], (error, results) => {
-      if (error) {
-        console.error(error);
-        res.status(500).json({ status: 'error', message: 'Server error' });
-      } else {
-        res.status(200).json({ status: 'success', message: 'User created successfully!' });
-      }
-    });
-  } catch (error) {
-    console.error(error); 
-    res.status(500).json({ status: 'error', message: 'Server error' });
-  }
+//delete user
+app.delete('/deleteUser/:name', (req, res) => {
+  const name = req.params.name;
+  
+  
+  db.query('DELETE FROM courses WHERE user_iduser IN (SELECT iduser FROM user WHERE name = ?)', name, (err, result) => {
+    if (err) {
+      console.error('Error deleting referencing rows:', err);
+      res.status(500).send(`Error deleting referencing rows: ${err.message}`);
+    } else {
+      db.query('DELETE FROM user WHERE name = ?', name, (err, result) => {
+        if (err) {
+          console.error('Error deleting user:', err);
+          res.status(500).send(`Error deleting user: ${err.message}`);
+        } else if (result.affectedRows === 0) {
+          console.log(`User with name ${name} not found`);
+          res.status(404).send(`User with name ${name} not found`);
+        } else {
+          console.log(`User with name ${name} deleted successfully`);
+          res.send(`User with name ${name} deleted successfully`);
+        }
+      });
+    }
+  });
 });
 
-//login
-
-app.post('/api/login', (req, res) => {
-    const { email, password } = req.body;
-  
-    const query = 'SELECT * FROM user WHERE email = ?';
-    db.query(query, email, async (error, results) => {
-      if (error) {
-        return res.status(500).json({ error });
-      }
-  
-      if (results.length > 0) {
-        const user = results[0];
-        const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) {
-          return res.status(400).json({ message: 'Invalid credentials' });
-        }
-  
-        const token = jwt.sign({ id: user.id }, 'your_secret_jwt_key', { expiresIn: '1h' });
-        return res.status(200).json({ message: 'Logged in successfully', token, user });
-      } else {
-        return res.status(400).json({ message: 'User not found' });
-      }
-    });
-  });
 
 
-
-app.listen(6000,()=>{
+app.listen(8000,()=>{
     console.log('here we go')
 })
